@@ -13,6 +13,7 @@ A React hook for speech-to-text using multiple STT providers.
 - Proper cleanup and resource management
 - Comprehensive error handling
 - Development mode support (React StrictMode compatible)
+- Secure API key handling through server actions
 
 ## Installation
 
@@ -23,7 +24,39 @@ npm install use-stt
 ## Usage
 
 ```typescript
+'use server';
+// app/actions/transcribe.ts
+export async function transcribe(formData: FormData) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not configured');
+  }
+
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: formData
+  });
+
+  const result = await response.json();
+  return {
+    transcript: result.text,
+    confidence: 0.95
+  };
+}
+
+// components/SpeechToText.tsx
+'use client';
 import { useSTT } from 'use-stt';
+import { transcribe } from '@/app/actions/transcribe';
+
+// Wrapper function to handle FormData conversion
+async function transcribeAudio(audioBlob: Blob) {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'audio.webm');
+  return transcribe(formData);
+}
 
 function SpeechToTextDemo() {
   const { 
@@ -37,7 +70,7 @@ function SpeechToTextDemo() {
     resumeRecording
   } = useSTT({
     provider: 'whisper',
-    apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+    transcribe: transcribeAudio
   });
 
   return (
@@ -94,7 +127,7 @@ function SpeechToTextDemo() {
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | provider | 'whisper' \| 'azure' \| 'google' | Yes | The STT provider to use |
-| apiKey | string | Yes | API key for the selected provider |
+| transcribe | (blob: Blob) => Promise<{transcript: string, confidence?: number}> | Yes | Function to handle transcription (typically a server action) |
 | language | string | No | Language code (e.g., 'en', 'es') |
 | model | string | No | Model name (provider-specific) |
 

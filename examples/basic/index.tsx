@@ -2,6 +2,14 @@
 
 import React from 'react';
 import { useSTT } from '../../src';
+import { transcribe } from './app/actions/transcribe';
+
+// Wrapper function to handle FormData conversion
+async function transcribeAudio(audioBlob: Blob) {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'audio.webm');
+  return transcribe(formData);
+}
 
 export default function WhisperExample() {
   const {
@@ -15,6 +23,7 @@ export default function WhisperExample() {
     resumeRecording,
   } = useSTT({
     provider: 'whisper',
+    transcribe: transcribeAudio
   });
 
   return (
