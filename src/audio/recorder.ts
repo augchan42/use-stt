@@ -6,48 +6,70 @@ export interface AudioRecorderOptions {
 
 export class AudioRecorder {
   private mediaRecorder: MediaRecorder | null = null;
-  private audioChunks: Blob[] = [];
   private options: AudioRecorderOptions;
 
   constructor(options: AudioRecorderOptions = {}) {
     this.options = options;
   }
 
+  private getSupportedMimeType(): string {
+    // Order of preference for audio formats
+    const mimeTypes = [
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg',
+      'audio/wav'
+    ];
+
+    // If user specified a mimeType, try that first
+    if (this.options.mimeType && MediaRecorder.isTypeSupported(this.options.mimeType)) {
+      return this.options.mimeType;
+    }
+
+    // Find the first supported mime type
+    const supportedType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+    if (!supportedType) {
+      throw new Error('No supported audio MIME types found');
+    }
+
+    return supportedType;
+  }
+
   async start(): Promise<void> {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = this.options.mimeType || 'audio/webm';
-      
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        throw new Error(`${mimeType} is not supported on this browser`);
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1, // Mono audio is sufficient for speech
+          sampleRate: 16000, // Common sample rate for speech recognition
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
 
+      const mimeType = this.getSupportedMimeType();
       console.log('Creating MediaRecorder with options:', {
         mimeType,
-        audioBitsPerSecond: 128000
+        platform: typeof window !== 'undefined' ? window.navigator.platform : 'unknown',
+        userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'unknown'
       });
 
       this.mediaRecorder = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 128000
+        mimeType
       });
       
+      // Only collect data when stopping
       this.mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
+        if (event.data.size > 0 && this.options.onDataAvailable) {
           console.log('MediaRecorder data available:', {
             size: event.data.size,
-            type: event.data.type,
-            timestamp: new Date().toISOString()
+            type: event.data.type
           });
-          this.audioChunks.push(event.data);
-          if (this.options.onDataAvailable) {
-            this.options.onDataAvailable(event.data);
-          }
+          this.options.onDataAvailable(event.data);
         }
       };
 
-      // Request larger chunks (every 5 seconds)
-      this.mediaRecorder.start(5000);
+      this.mediaRecorder.start();
       console.log('MediaRecorder started');
     } catch (error) {
       console.error('Error starting MediaRecorder:', error);
@@ -58,24 +80,16 @@ export class AudioRecorder {
     }
   }
 
-  stop(): Blob | null {
+  stop(): void {
     if (!this.mediaRecorder) {
-      return null;
+      return;
     }
 
     console.log('Stopping MediaRecorder');
+    // This will trigger ondataavailable with the complete recording
     this.mediaRecorder.stop();
     const tracks = this.mediaRecorder.stream.getTracks();
     tracks.forEach(track => track.stop());
-
-    const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType });
-    console.log('Created final audio blob:', {
-      size: audioBlob.size,
-      type: audioBlob.type,
-      chunksCount: this.audioChunks.length
-    });
-    this.audioChunks = [];
-    return audioBlob;
   }
 
   pause(): void {

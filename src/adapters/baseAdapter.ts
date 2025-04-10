@@ -39,15 +39,14 @@ export abstract class BaseAdapter {
         mimeType: 'audio/webm',
         onDataAvailable: async (data) => {
           try {
-            console.log('Received audio chunk:', {
+            console.log('Processing complete recording:', {
               size: data.size,
-              type: data.type,
-              timestamp: new Date().toISOString()
+              type: data.type
             });
             const result = await this.processAudio(data);
             this.resultCallback?.(result);
           } catch (error) {
-            console.error('Error processing audio chunk:', error);
+            console.error('Error processing audio:', error);
             this.handleError(error);
           }
         },
@@ -66,23 +65,7 @@ export abstract class BaseAdapter {
   async stop(): Promise<void> {
     if (this.recorder) {
       console.log('Stopping recording...');
-      const audioBlob = this.recorder.stop();
-      
-      if (audioBlob) {
-        try {
-          console.log('Processing final audio:', {
-            size: audioBlob.size,
-            type: audioBlob.type,
-            timestamp: new Date().toISOString()
-          });
-          const result = await this.processAudio(audioBlob);
-          this.resultCallback?.(result);
-        } catch (error) {
-          console.error('Error processing final audio:', error);
-          this.handleError(new BaseError('Failed to process audio'));
-        }
-      }
-      
+      this.recorder.stop();
       this.cleanup();
       this.endCallback?.();
     }
@@ -90,13 +73,13 @@ export abstract class BaseAdapter {
 
   pause(): void {
     if (this.recorder) {
-      this.recorder.pause?.();
+      this.recorder.pause();
     }
   }
 
   resume(): void {
     if (this.recorder) {
-      this.recorder.resume?.();
+      this.recorder.resume();
     }
   }
 
