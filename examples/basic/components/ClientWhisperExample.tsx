@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useSTT } from 'use-stt';
+import { useSTT } from '../../../src';
 import { transcribe } from '../app/actions/transcribe';
 
 interface DebugLog {
