@@ -2,32 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSTT } from '../src/hooks/useSTT';
 
-// Mock the MediaRecorder
-const MediaRecorderMock = vi.fn().mockImplementation(() => {
-  return {
-    start: vi.fn(),
-    stop: vi.fn(),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    ondataavailable: vi.fn(),
-    onstart: vi.fn(),
-    onstop: vi.fn(),
-    state: 'inactive',
-    stream: {
-      getTracks: () => [{ stop: vi.fn() }]
-    }
-  };
-}) as unknown as typeof MediaRecorder;
-MediaRecorderMock.isTypeSupported = vi.fn().mockReturnValue(true);
-global.MediaRecorder = MediaRecorderMock;
-
-// Mock navigator.mediaDevices
-Object.defineProperty(global.navigator, 'mediaDevices', {
-  value: {
-    getUserMedia: vi.fn().mockResolvedValue('mock-stream')
-  }
-});
-
 describe('useSTT', () => {
   beforeEach(() => {
     vi.clearAllMocks();
