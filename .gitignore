@@ -38,3 +38,6 @@ next-env.d.ts
 examples/*/.next/
 examples/*/node_modules/
 examples/*/.env.local
+
+# Private individual user cursor rules
+.cursor/rules/_*.mdc

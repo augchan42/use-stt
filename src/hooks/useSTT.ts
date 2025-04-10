@@ -1,146 +1,118 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { STTOptions, STTState, STTProvider } from '../core/types';
-import { BaseAdapter } from '../adapters/baseAdapter';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { STTOptions, STTResult } from '../core/types';
+import { BaseError } from '../adapters/baseAdapter';
 import { WhisperAdapter } from '../adapters/whisperAdapter';
 
-// Import other adapters as you implement them
-// import { AzureAdapter } from '../adapters/azureAdapter';
-// import { GoogleAdapter } from '../adapters/googleAdapter';
+interface UseSTTResult {
+  transcript: string;
+  isRecording: boolean;
+  isProcessing: boolean;
+  error: Error | null;
+  startRecording: () => Promise<void>;
+  stopRecording: () => Promise<void>;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
+}
 
-const createAdapter = (options: STTOptions): BaseAdapter => {
-  switch (options.provider) {
-    case 'whisper':
-      return new WhisperAdapter(options);
-    // Add cases for other providers as you implement them
-    // case 'azure':
-    //   return new AzureAdapter(options);
-    // case 'google':
-    //   return new GoogleAdapter(options);
-    default:
-      throw new Error(`Unsupported provider: ${options.provider}`);
-  }
-};
+const isDev = process.env.NODE_ENV === 'development';
 
-export const useSTT = (options: STTOptions) => {
-  const [state, setState] = useState<STTState>({
-    isRecording: false,
-    isProcessing: false,
-    transcript: '',
-    error: null
-  });
-  
-  const adapterRef = useRef<BaseAdapter | null>(null);
-  
+export function useSTT(options: STTOptions): UseSTTResult {
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [error, setError] = useState<Error | null>(null);
+  const adapterRef = useRef<WhisperAdapter | null>(null);
+  const mountCountRef = useRef(0);
+
+  // Initialize adapter
   useEffect(() => {
-    // Initialize the adapter when options change
-    adapterRef.current = createAdapter(options);
-    
+    // Increment mount count
+    mountCountRef.current += 1;
+
+    // Create new adapter instance
+    const adapter = new WhisperAdapter({
+      ...options,
+      onResult: (result: STTResult) => {
+        setTranscript(result.transcript);
+        if (result.isFinal) {
+          setIsProcessing(false);
+        }
+      },
+      onError: (err: Error) => {
+        setError(err);
+        setIsProcessing(false);
+        setIsRecording(false);
+      },
+      onStart: () => {
+        setIsRecording(true);
+        setError(null);
+        setIsProcessing(true);
+      },
+      onEnd: () => {
+        setIsRecording(false);
+        setIsProcessing(false);
+      }
+    });
+
+    adapterRef.current = adapter;
+
+    // Cleanup function
     return () => {
-      // Clean up on unmount
+      // In development, don't cleanup on first unmount (StrictMode)
+      if (isDev && mountCountRef.current === 1) {
+        return;
+      }
+
       if (adapterRef.current) {
         adapterRef.current.abort();
+        adapterRef.current = null;
       }
     };
-  }, [options.provider]);
-  
-  const setupCallbacks = useCallback(() => {
-    if (!adapterRef.current) return;
-    
-    adapterRef.current.onStart(() => {
-      setState(prev => ({ ...prev, isRecording: true, error: null }));
-    });
-    
-    adapterRef.current.onResult((result) => {
-      setState(prev => ({
-        ...prev,
-        transcript: result.transcript,
-        isProcessing: !result.isFinal
-      }));
-    });
-    
-    adapterRef.current.onError((error) => {
-      setState(prev => ({ ...prev, error, isRecording: false, isProcessing: false }));
-    });
-    
-    adapterRef.current.onEnd(() => {
-      setState(prev => ({ ...prev, isRecording: false, isProcessing: false }));
-    });
-  }, []);
-  
+  }, [options.apiKey]); // Only recreate if API key changes
+
   const startRecording = useCallback(async () => {
-    if (adapterRef.current) {
-      setupCallbacks();
-      try {
-        await adapterRef.current.start();
-      } catch (error) {
-        setState(prev => ({ 
-          ...prev, 
-          error: { 
-            code: 'start_error', 
-            message: error instanceof Error ? error.message : 'Failed to start recording' 
-          }, 
-          isRecording: false 
-        }));
-      }
+    try {
+      if (!adapterRef.current) return;
+      setError(null);
+      await adapterRef.current.start();
+    } catch (err) {
+      setIsRecording(false);
+      setIsProcessing(false);
+      setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
     }
-  }, [setupCallbacks]);
-  
+  }, []);
+
   const stopRecording = useCallback(async () => {
-    if (adapterRef.current) {
-      setState(prev => ({ ...prev, isProcessing: true }));
-      try {
-        await adapterRef.current.stop();
-      } catch (error) {
-        setState(prev => ({ 
-          ...prev, 
-          error: { 
-            code: 'stop_error', 
-            message: error instanceof Error ? error.message : 'Failed to stop recording' 
-          },
-          isRecording: false,
-          isProcessing: false
-        }));
-      }
+    try {
+      if (!adapterRef.current) return;
+      setIsProcessing(true);
+      await adapterRef.current.stop();
+    } catch (err) {
+      setIsProcessing(false);
+      setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
     }
   }, []);
-  
-  const pauseRecording = useCallback(async () => {
+
+  const pauseRecording = useCallback(() => {
     if (adapterRef.current) {
-      try {
-        await adapterRef.current.pause();
-      } catch (error) {
-        setState(prev => ({ 
-          ...prev, 
-          error: { 
-            code: 'pause_error', 
-            message: error instanceof Error ? error.message : 'Failed to pause recording' 
-          } 
-        }));
-      }
+      adapterRef.current.pause();
     }
   }, []);
-  
-  const resumeRecording = useCallback(async () => {
+
+  const resumeRecording = useCallback(() => {
     if (adapterRef.current) {
-      try {
-        await adapterRef.current.resume();
-      } catch (error) {
-        setState(prev => ({ 
-          ...prev, 
-          error: { 
-            code: 'resume_error', 
-            message: error instanceof Error ? error.message : 'Failed to resume recording' 
-          } 
-        }));
-      }
+      adapterRef.current.resume();
     }
   }, []);
-  
+
   return {
-    ...state,
+    transcript,
+    isRecording,
+    isProcessing,
+    error,
     startRecording,
     stopRecording,
     pauseRecording,
-    resumeRecording
+    resumeRecording,
   };
-};
+}

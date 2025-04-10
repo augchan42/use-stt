@@ -1,13 +1,17 @@
+import type { STTError } from '../errors';
+
 export type STTProvider = 'whisper' | 'azure' | 'google';
 
 export interface STTOptions {
   provider: STTProvider;
   apiKey?: string;
   language?: string;
-  continuous?: boolean;
-  interimResults?: boolean;
-  maxAlternatives?: number;
-  // Add other common options here
+  model?: string;
+  prompt?: string;
+  onResult?: (result: STTResult) => void;
+  onError?: (error: Error) => void;
+  onStart?: () => void;
+  onEnd?: () => void;
 }
 
 export interface STTResult {
@@ -16,7 +20,7 @@ export interface STTResult {
   confidence?: number;
 }
 
-export interface STTError {
+export interface STTErrorData {
   code: string;
   message: string;
   provider?: STTProvider;
@@ -26,5 +30,7 @@ export interface STTState {
   isRecording: boolean;
   isProcessing: boolean;
   transcript: string;
-  error: STTError | null;
+  error: Error | null;
 }
+
+export { STTError };
