@@ -6,10 +6,6 @@ const ClientWhisperExample = dynamic(
   { ssr: false }
 );
 
-interface WhisperExampleProps {
-  apiKey?: string;
-}
-
-export default function WhisperExample({ apiKey }: WhisperExampleProps) {
-  return <ClientWhisperExample apiKey={apiKey} />;
+export default function WhisperExample() {
+  return <ClientWhisperExample />;
 } 

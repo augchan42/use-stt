@@ -2,12 +2,32 @@
 
 import React from 'react';
 import { useSTT } from 'use-stt';
+import { transcribe } from '../app/actions/transcribe';
 
-interface ClientWhisperExampleProps {
-  apiKey?: string;
+// Wrapper function to handle FormData conversion
+async function transcribeAudio(audioBlob: Blob) {
+  console.log('Client: Received audio blob:', {
+    size: audioBlob.size,
+    type: audioBlob.type
+  });
+
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'audio.webm');
+  
+  // Log FormData contents (for debugging)
+  console.log('Client: FormData contents:', {
+    hasFile: formData.has('file'),
+    fileName: formData.get('file') instanceof File ? (formData.get('file') as File).name : null,
+    fileSize: formData.get('file') instanceof File ? (formData.get('file') as File).size : null,
+    fileType: formData.get('file') instanceof File ? (formData.get('file') as File).type : null
+  });
+
+  const result = await transcribe(formData);
+  console.log('Client: Received transcription result:', result);
+  return result;
 }
 
-export default function ClientWhisperExample({ apiKey }: ClientWhisperExampleProps) {
+export default function ClientWhisperExample() {
   const {
     transcript,
     isRecording,
@@ -19,7 +39,7 @@ export default function ClientWhisperExample({ apiKey }: ClientWhisperExamplePro
     resumeRecording,
   } = useSTT({
     provider: 'whisper',
-    apiKey,
+    transcribe: transcribeAudio
   });
 
   return (

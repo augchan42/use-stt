@@ -39,7 +39,11 @@ export abstract class BaseAdapter {
         mimeType: 'audio/webm',
         onDataAvailable: async (data) => {
           try {
-            console.log('Processing audio chunk, size:', data.size);
+            console.log('Received audio chunk:', {
+              size: data.size,
+              type: data.type,
+              timestamp: new Date().toISOString()
+            });
             const result = await this.processAudio(data);
             this.resultCallback?.(result);
           } catch (error) {
@@ -66,7 +70,11 @@ export abstract class BaseAdapter {
       
       if (audioBlob) {
         try {
-          console.log('Processing final audio, size:', audioBlob.size);
+          console.log('Processing final audio:', {
+            size: audioBlob.size,
+            type: audioBlob.type,
+            timestamp: new Date().toISOString()
+          });
           const result = await this.processAudio(audioBlob);
           this.resultCallback?.(result);
         } catch (error) {

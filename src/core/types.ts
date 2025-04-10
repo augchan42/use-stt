@@ -4,7 +4,7 @@ export type STTProvider = 'whisper' | 'azure' | 'google';
 
 export interface STTOptions {
   provider: STTProvider;
-  apiKey?: string;
+  transcribe: (audioBlob: Blob) => Promise<{ transcript: string; confidence?: number }>;
   language?: string;
   model?: string;
   prompt?: string;

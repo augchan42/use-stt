@@ -68,7 +68,7 @@ export function useSTT(options: STTOptions): UseSTTResult {
         adapterRef.current = null;
       }
     };
-  }, [options.apiKey]); // Only recreate if API key changes
+  }, [options.transcribe]); // Only recreate if transcribe function changes
 
   const startRecording = useCallback(async () => {
     try {
