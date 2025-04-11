@@ -6,14 +6,14 @@ export interface AudioRecorderOptions {
 
 export class AudioRecorder {
   private mediaRecorder: MediaRecorder | null = null;
+  private stream: MediaStream | null = null;
   private options: AudioRecorderOptions;
 
-  constructor(options: AudioRecorderOptions = {}) {
+  constructor(options: AudioRecorderOptions) {
     this.options = options;
   }
 
   private getSupportedMimeType(): string {
-    // Order of preference for audio formats
     const mimeTypes = [
       'audio/webm',
       'audio/mp4',
@@ -21,12 +21,10 @@ export class AudioRecorder {
       'audio/wav'
     ];
 
-    // If user specified a mimeType, try that first
     if (this.options.mimeType && MediaRecorder.isTypeSupported(this.options.mimeType)) {
       return this.options.mimeType;
     }
 
-    // Find the first supported mime type
     const supportedType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
     if (!supportedType) {
       throw new Error('No supported audio MIME types found');
@@ -37,10 +35,14 @@ export class AudioRecorder {
 
   async start(): Promise<void> {
     try {
+      if (this.mediaRecorder?.state === 'recording') {
+        throw new Error('Recording already in progress');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
-          channelCount: 1, // Mono audio is sufficient for speech
-          sampleRate: 16000, // Common sample rate for speech recognition
+          channelCount: 1,
+          sampleRate: 16000,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
@@ -54,11 +56,9 @@ export class AudioRecorder {
         userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : 'unknown'
       });
 
-      this.mediaRecorder = new MediaRecorder(stream, {
-        mimeType
-      });
+      this.stream = stream;
+      this.mediaRecorder = new MediaRecorder(stream, { mimeType });
       
-      // Only collect data when stopping
       this.mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0 && this.options.onDataAvailable) {
           console.log('MediaRecorder data available:', {
@@ -66,6 +66,13 @@ export class AudioRecorder {
             type: event.data.type
           });
           this.options.onDataAvailable(event.data);
+        }
+      };
+
+      this.mediaRecorder.onerror = (event) => {
+        const error = event.error || new Error('MediaRecorder error');
+        if (this.options.onError) {
+          this.options.onError(error);
         }
       };
 
@@ -80,29 +87,49 @@ export class AudioRecorder {
     }
   }
 
-  stop(): void {
-    if (!this.mediaRecorder) {
-      return;
-    }
+  async stop(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.mediaRecorder) {
+        reject(new Error('MediaRecorder not initialized'));
+        return;
+      }
 
-    console.log('Stopping MediaRecorder');
-    // This will trigger ondataavailable with the complete recording
-    this.mediaRecorder.stop();
-    const tracks = this.mediaRecorder.stream.getTracks();
-    tracks.forEach(track => track.stop());
+      console.log('Stopping MediaRecorder');
+      
+      const handleStop = () => {
+        this.cleanup();
+        resolve();
+      };
+
+      const handleError = (event: Event) => {
+        this.cleanup();
+        reject(new Error('MediaRecorder error'));
+      };
+
+      this.mediaRecorder.onstop = handleStop;
+      this.mediaRecorder.onerror = handleError;
+      
+      this.mediaRecorder.stop();
+    });
   }
 
   pause(): void {
     if (this.mediaRecorder?.state === 'recording') {
-      console.log('Pausing MediaRecorder');
       this.mediaRecorder.pause();
     }
   }
 
   resume(): void {
     if (this.mediaRecorder?.state === 'paused') {
-      console.log('Resuming MediaRecorder');
       this.mediaRecorder.resume();
     }
+  }
+
+  private cleanup(): void {
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+      this.stream = null;
+    }
+    this.mediaRecorder = null;
   }
 } 

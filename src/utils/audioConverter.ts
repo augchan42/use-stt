@@ -1,6 +1,6 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
-import type { FFmpegConfig, AudioMetadata } from '../core/types';
+import type { FFmpegConfig, AudioMetadata } from '../types';
 
 const SUPPORTED_INPUT_FORMATS = [
   'audio/webm',

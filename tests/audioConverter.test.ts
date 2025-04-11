@@ -33,7 +33,7 @@ describe('audioConverter', () => {
   describe('convertAudioToMono', () => {
     const audioBlob = new Blob(['test'], { type: 'audio/webm' });
 
-    it('should convert audio to mono WAV with correct parameters', async () => {
+    it('should convert audio to mono WebM with correct parameters', async () => {
       await convertAudioToMono(mockFFmpeg, audioBlob);
 
       expect(mockFFmpeg.writeFile).toHaveBeenCalledWith('input', expect.any(Uint8Array));
@@ -41,12 +41,14 @@ describe('audioConverter', () => {
         '-i', 'input',
         '-ar', '16000',
         '-ac', '1',
-        '-c:a', 'pcm_s16le',
-        'output.wav'
+        '-c:a', 'libopus',
+        '-b:a', '24k',
+        '-compression_level', '10',
+        'output.webm'
       ]);
-      expect(mockFFmpeg.readFile).toHaveBeenCalledWith('output.wav');
+      expect(mockFFmpeg.readFile).toHaveBeenCalledWith('output.webm');
       expect(mockFFmpeg.deleteFile).toHaveBeenCalledWith('input');
-      expect(mockFFmpeg.deleteFile).toHaveBeenCalledWith('output.wav');
+      expect(mockFFmpeg.deleteFile).toHaveBeenCalledWith('output.webm');
     });
 
     it('should throw error for unsupported audio format', async () => {

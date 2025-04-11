@@ -1,4 +1,4 @@
-import { STTOptions, STTResult } from '../core/types';
+import { STTOptions, STTResult } from '../types';
 import { AudioRecorder } from '../audio/recorder';
 
 export class BaseError extends Error {
@@ -28,6 +28,20 @@ export abstract class BaseAdapter {
     if (options.onEnd) this.endCallback = options.onEnd;
   }
 
+  protected handleError(error: unknown) {
+    const err = error instanceof Error ? error : new BaseError('Unknown error');
+    // Call error callback first to set error state
+    this.errorCallback?.(err);
+    // Then call end callback to reset processing/recording states
+    this.endCallback?.();
+    // Clean up recorder if it exists
+    if (this.recorder) {
+      this.recorder.stop().catch(console.error);
+      this.recorder = null;
+    }
+    throw err; // Re-throw to propagate to caller
+  }
+
   // Core method that derived classes must implement - this is where provider-specific logic goes
   protected abstract processAudio(audioBlob: Blob): Promise<STTResult>;
   
@@ -35,6 +49,7 @@ export abstract class BaseAdapter {
     try {      
       console.log('Starting adapter...');
       
+      // Initialize recorder first
       this.recorder = new AudioRecorder({
         mimeType: 'audio/webm',
         onDataAvailable: async (data) => {
@@ -45,6 +60,7 @@ export abstract class BaseAdapter {
             });
             const result = await this.processAudio(data);
             this.resultCallback?.(result);
+            this.endCallback?.(); // Call end callback after successful processing
           } catch (error) {
             console.error('Error processing audio:', error);
             this.handleError(error);
@@ -53,21 +69,31 @@ export abstract class BaseAdapter {
         onError: (error) => this.handleError(error)
       });
 
-      await this.recorder.start();
+      // Call startCallback before starting recording to ensure state is set
       this.startCallback?.();
+
+      // Wait for the recorder to start before proceeding
+      await this.recorder.start();
     } catch (error) {
       console.error('Error in start():', error);
       this.handleError(error);
-      throw error;
     }
   }
 
   async stop(): Promise<void> {
-    if (this.recorder) {
+    try {
+      if (!this.recorder) return;
       console.log('Stopping recording...');
-      this.recorder.stop();
-      this.cleanup();
-      this.endCallback?.();
+      // Store recorder reference in case it gets cleared during async operations
+      const currentRecorder = this.recorder;
+      // Clear recorder reference before stopping to prevent duplicate callbacks
+      this.recorder = null;
+      // Wait for the recorder to stop before proceeding
+      await currentRecorder.stop();
+      // endCallback is now called after successful audio processing
+    } catch (error) {
+      console.error('Error in stop():', error);
+      this.handleError(error);
     }
   }
 
@@ -84,8 +110,11 @@ export abstract class BaseAdapter {
   }
 
   abort(): void {
-    this.cleanup();
-    this.endCallback?.();
+    console.log('Cleaning up adapter...');
+    if (this.recorder) {
+      this.recorder.stop();
+      this.recorder = null;
+    }
   }
 
   // Callback setters
@@ -103,19 +132,5 @@ export abstract class BaseAdapter {
 
   onEnd(callback: () => void): void {
     this.endCallback = callback;
-  }
-
-  protected cleanup(): void {
-    console.log('Cleaning up adapter...');
-    if (this.recorder) {
-      this.recorder.stop();
-      this.recorder = null;
-    }
-  }
-
-  protected handleError(error: unknown): void {
-    const message = error instanceof Error ? error.message : 'Unknown error occurred';
-    console.error('Adapter error:', message);
-    this.errorCallback?.(new BaseError(message));
   }
 }

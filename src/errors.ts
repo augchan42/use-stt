@@ -1,4 +1,4 @@
-import type { STTErrorData, STTProvider } from './core/types';
+import type { STTErrorData, STTProvider } from './types';
 
 export class STTError extends Error {
   code: string;

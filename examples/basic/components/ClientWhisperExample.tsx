@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSTT } from '../../../src';
 import { transcribe } from '../app/actions/transcribe';
-import type { FFmpegConfig } from '../../../src/core/types';
+import type { FFmpegConfig } from '../../../src/types';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { convertAudioToWebM } from '../../../src/utils/audioConverter';
 
@@ -114,6 +114,8 @@ export default function ClientWhisperExample() {
     isRecording,
     isProcessing,
     error,
+    isInitialized,
+    isStopping,
     startRecording,
     stopRecording,
     pauseRecording,
@@ -265,9 +267,10 @@ export default function ClientWhisperExample() {
           <>
             <button
               onClick={stopRecording}
-              className="bg-red-500 text-white px-4 py-2 rounded"
+              className="bg-red-500 text-white px-4 py-2 rounded disabled:opacity-50"
+              disabled={isStopping}
             >
-              Stop Recording
+              {isStopping ? 'Stopping...' : 'Stop Recording'}
             </button>
             <button
               onClick={pauseRecording}

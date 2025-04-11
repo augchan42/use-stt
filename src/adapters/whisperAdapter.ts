@@ -1,10 +1,14 @@
 import { BaseAdapter, BaseError } from './baseAdapter';
-import { STTOptions, STTResult } from '../core/types';
+import { STTOptions, STTResult } from '../types';
 import { convertAudioToMono } from '../utils/audioConverter';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 
 interface WhisperAdapterOptions extends STTOptions {
   ffmpeg: FFmpeg;
+  onResult?: (result: STTResult) => void;
+  onError?: (error: Error) => void;
+  onStart?: () => void;
+  onEnd?: () => void;
 }
 
 export class WhisperAdapter extends BaseAdapter {

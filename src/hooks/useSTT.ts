@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { STTOptions, STTResult } from '../core/types';
+import { flushSync } from 'react-dom';
+import { STTOptions, STTResult } from '../types';
 import { BaseError } from '../adapters/baseAdapter';
 import { WhisperAdapter } from '../adapters/whisperAdapter';
 import { useFFmpeg } from './useFFmpeg';
@@ -9,6 +10,8 @@ interface UseSTTResult {
   isRecording: boolean;
   isProcessing: boolean;
   error: Error | null;
+  isInitialized: boolean;
+  isStopping: boolean;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   pauseRecording: () => void;
@@ -22,53 +25,99 @@ export function useSTT(options: STTOptions): UseSTTResult {
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<Error | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const adapterRef = useRef<WhisperAdapter | null>(null);
-  const mountCountRef = useRef(0);
+  const optionsRef = useRef(options);
+
+  // Update options ref when options change
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   // Initialize FFmpeg
   const { ffmpeg, loaded, loading, error: ffmpegError, load: loadFFmpeg } = useFFmpeg();
 
   // Initialize adapter when FFmpeg is loaded
   useEffect(() => {
-    if (!loaded || !ffmpeg) return;
+    let isMounted = true;
 
-    // Only create adapter if it doesn't exist
-    if (!adapterRef.current) {
-      console.log('Creating new WhisperAdapter instance');
-      adapterRef.current = new WhisperAdapter({
-        ...options,
-        ffmpeg,
-        onResult: (result: STTResult) => {
-          setTranscript(result.transcript);
-          if (result.isFinal) {
-            setIsProcessing(false);
-          }
-        },
-        onError: (err: Error) => {
-          setError(err);
-          setIsProcessing(false);
-          setIsRecording(false);
-        },
-        onStart: () => {
-          setIsRecording(true);
-          setError(null);
-          setIsProcessing(true);
-        },
-        onEnd: () => {
-          setIsRecording(false);
-          setIsProcessing(false);
+    const initializeAdapter = async () => {
+      if (!loaded || !ffmpeg) {
+        if (ffmpegError && isMounted) {
+          setError(ffmpegError);
+          setIsInitialized(false);
         }
-      });
-    }
+        return;
+      }
 
-    // Cleanup function
+      try {
+        // Only create adapter if it doesn't exist
+        if (!adapterRef.current) {
+          console.log('Creating new WhisperAdapter instance');
+          const adapter = new WhisperAdapter({
+            ...optionsRef.current,
+            ffmpeg,
+            onResult: (result: STTResult) => {
+              if (!isMounted) return;
+              setTranscript(result.transcript);
+              if (result.isFinal) {
+                setIsProcessing(false);
+              }
+            },
+            onError: (err: Error) => {
+              if (!isMounted) return;
+              // Use React's batching to ensure state updates happen together
+              flushSync(() => {
+                setError(err);
+                setIsProcessing(false);
+                setIsRecording(false);
+              });
+            },
+            onStart: () => {
+              if (!isMounted) return;
+              // Use React's batching to ensure state updates happen together
+              flushSync(() => {
+                setError(null);
+                setIsRecording(true);
+                setIsProcessing(true);
+              });
+            },
+            onEnd: () => {
+              if (!isMounted) return;
+              // Use React's batching to ensure state updates happen together
+              flushSync(() => {
+                setIsRecording(false);
+                setIsStopping(false);
+              });
+            }
+          });
+
+          adapterRef.current = adapter;
+          if (isMounted) {
+            setIsInitialized(true);
+          }
+        }
+      } catch (err) {
+        console.error('Error initializing adapter:', err);
+        if (isMounted) {
+          setError(err instanceof Error ? err : new BaseError('Failed to initialize adapter'));
+          setIsInitialized(false);
+        }
+      }
+    };
+
+    initializeAdapter();
+
     return () => {
+      isMounted = false;
       if (adapterRef.current) {
         adapterRef.current.abort();
         adapterRef.current = null;
+        setIsInitialized(false);
       }
     };
-  }, [loaded, ffmpeg, options.transcribe]); // Only depend on critical options
+  }, [loaded, ffmpeg, ffmpegError]); // Remove options from deps array since we use ref
 
   // Load FFmpeg on mount
   useEffect(() => {
@@ -77,32 +126,42 @@ export function useSTT(options: STTOptions): UseSTTResult {
 
   const startRecording = useCallback(async () => {
     try {
-      if (!adapterRef.current) {
-        throw new Error('STT adapter not initialized');
+      if (ffmpegError) {
+        throw ffmpegError;
       }
       if (!loaded || !ffmpeg) {
         throw new Error('FFmpeg not loaded');
       }
-      if (ffmpegError) {
-        throw ffmpegError;
+      if (!adapterRef.current || !isInitialized) {
+        throw new Error('STT adapter not initialized');
       }
-      setError(null);
+      // Let the adapter's onStart callback handle state updates
       await adapterRef.current.start();
     } catch (err) {
-      setIsRecording(false);
-      setIsProcessing(false);
-      setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
+      // Use React's batching to ensure state updates happen together
+      flushSync(() => {
+        setIsRecording(false);
+        setIsProcessing(false);
+        setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
+      });
+      throw err; // Re-throw for test expectations
     }
-  }, [loaded, ffmpeg, ffmpegError]);
+  }, [loaded, ffmpeg, ffmpegError, isInitialized]);
 
   const stopRecording = useCallback(async () => {
     try {
       if (!adapterRef.current) return;
-      setIsProcessing(true);
+      setIsStopping(true);
+      // Let the adapter's callbacks handle state updates
       await adapterRef.current.stop();
     } catch (err) {
-      setIsProcessing(false);
-      setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
+      // Use React's batching to ensure state updates happen together
+      flushSync(() => {
+        setIsStopping(false);
+        setIsProcessing(false);
+        setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
+      });
+      throw err; // Re-throw for test expectations
     }
   }, []);
 
@@ -123,6 +182,8 @@ export function useSTT(options: STTOptions): UseSTTResult {
     isRecording,
     isProcessing: isProcessing || loading,
     error: error || ffmpegError,
+    isInitialized,
+    isStopping,
     startRecording,
     stopRecording,
     pauseRecording,
