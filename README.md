@@ -266,3 +266,35 @@ See the [examples](./examples) directory for a complete demo with audio processi
 ## Development
 
 See the [examples](./examples) directory for working examples.
+
+## Important Usage Notes
+
+### Audio Format Conversion
+
+The WhisperAdapter automatically handles audio format conversion to WebM/Opus when needed. Your transcribe function should NOT perform any audio conversion - just pass the audio blob directly to your transcription API:
+
+```typescript
+// ✅ Good: Let the adapter handle conversion
+const transcribeAudio = async (audioBlob: Blob) => {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'audio.webm');
+  return transcribe(formData);
+};
+
+// ❌ Bad: Don't convert the audio yourself
+const transcribeAudio = async (audioBlob: Blob) => {
+  // Don't do this! The adapter already handles conversion
+  const processedBlob = await convertAudioToWebM(ffmpeg, audioBlob, config);
+  const formData = new FormData();
+  formData.append('file', processedBlob, 'audio.webm');
+  return transcribe(formData);
+};
+```
+
+The adapter:
+1. Automatically detects if the audio is already in WebM format
+2. Only converts when necessary (e.g., for iOS recordings)
+3. Handles all FFmpeg initialization and cleanup
+4. Applies any necessary audio processing options
+
+This prevents double conversion and ensures optimal performance.

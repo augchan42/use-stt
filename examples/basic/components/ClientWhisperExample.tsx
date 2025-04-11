@@ -29,39 +29,23 @@ const defaultConfig: FFmpegConfig = {
 // Initialize FFmpeg
 let ffmpeg: FFmpeg | null = null;
 
-// Wrapper function to handle audio conversion and transcription
-async function transcribeAudio(audioBlob: Blob, config: FFmpegConfig) {
+// Wrapper function to handle transcription
+async function transcribeAudio(audioBlob: Blob) {
   console.log('Client: Received audio blob:', {
     size: audioBlob.size,
-    type: audioBlob.type,
-    config
+    type: audioBlob.type
   });
 
   try {
-    // Initialize FFmpeg if not already done
-    if (!ffmpeg) {
-      console.log('Initializing FFmpeg...');
-      ffmpeg = new FFmpeg();
-      await ffmpeg.load();
-    }
-
-    // Convert audio with specified config
-    console.log('Converting audio with config:', config);
-    const processedBlob = await convertAudioToWebM(ffmpeg, audioBlob, config);
-    console.log('Audio conversion complete:', {
-      originalSize: audioBlob.size,
-      processedSize: processedBlob.size
-    });
-
     // Send to server for transcription
     const formData = new FormData();
-    formData.append('file', processedBlob, 'audio.webm');
+    formData.append('file', audioBlob, 'audio.webm');
     
     const result = await transcribe(formData);
     console.log('Client: Received transcription result:', result);
     return result;
   } catch (error) {
-    console.error('Audio processing error:', error);
+    console.error('Transcription error:', error);
     throw error;
   }
 }
@@ -70,11 +54,12 @@ export default function ClientWhisperExample() {
   const [logs, setLogs] = useState<DebugLog[]>([]);
   const [config, setConfig] = useState<FFmpegConfig>(defaultConfig);
   
-  // Memoize the transcribe function with config
-  const memoizedTranscribe = useCallback(
-    (blob: Blob) => transcribeAudio(blob, config),
-    [config]
-  );
+  // Use the transcribe function directly
+  const { transcript, isRecording, isProcessing, error, isInitialized, isStopping,
+    startRecording, stopRecording, pauseRecording, resumeRecording } = useSTT({
+    provider: 'whisper',
+    transcribe: transcribeAudio
+  });
 
   // Intercept console messages
   useEffect(() => {
@@ -108,22 +93,6 @@ export default function ClientWhisperExample() {
       console.error = originalConsoleError;
     };
   }, []);
-
-  const {
-    transcript,
-    isRecording,
-    isProcessing,
-    error,
-    isInitialized,
-    isStopping,
-    startRecording,
-    stopRecording,
-    pauseRecording,
-    resumeRecording,
-  } = useSTT({
-    provider: 'whisper',
-    transcribe: memoizedTranscribe
-  });
 
   // Add platform info at start
   useEffect(() => {
