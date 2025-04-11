@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { flushSync } from 'react-dom';
 import { STTOptions, STTResult } from '../types';
 import { BaseError } from '../adapters/baseAdapter';
 import { WhisperAdapter } from '../adapters/whisperAdapter';
@@ -67,29 +66,20 @@ export function useSTT(options: STTOptions): UseSTTResult {
             },
             onError: (err: Error) => {
               if (!isMounted) return;
-              // Use React's batching to ensure state updates happen together
-              flushSync(() => {
-                setError(err);
-                setIsProcessing(false);
-                setIsRecording(false);
-              });
+              setError(err);
+              setIsProcessing(false);
+              setIsRecording(false);
             },
             onStart: () => {
               if (!isMounted) return;
-              // Use React's batching to ensure state updates happen together
-              flushSync(() => {
-                setError(null);
-                setIsRecording(true);
-                setIsProcessing(true);
-              });
+              setError(null);
+              setIsRecording(true);
+              setIsProcessing(true);
             },
             onEnd: () => {
               if (!isMounted) return;
-              // Use React's batching to ensure state updates happen together
-              flushSync(() => {
-                setIsRecording(false);
-                setIsStopping(false);
-              });
+              setIsRecording(false);
+              setIsStopping(false);
             }
           });
 
@@ -135,16 +125,12 @@ export function useSTT(options: STTOptions): UseSTTResult {
       if (!adapterRef.current || !isInitialized) {
         throw new Error('STT adapter not initialized');
       }
-      // Let the adapter's onStart callback handle state updates
       await adapterRef.current.start();
     } catch (err) {
-      // Use React's batching to ensure state updates happen together
-      flushSync(() => {
-        setIsRecording(false);
-        setIsProcessing(false);
-        setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
-      });
-      throw err; // Re-throw for test expectations
+      setIsRecording(false);
+      setIsProcessing(false);
+      setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
+      throw err;
     }
   }, [loaded, ffmpeg, ffmpegError, isInitialized]);
 
@@ -152,16 +138,12 @@ export function useSTT(options: STTOptions): UseSTTResult {
     try {
       if (!adapterRef.current) return;
       setIsStopping(true);
-      // Let the adapter's callbacks handle state updates
       await adapterRef.current.stop();
     } catch (err) {
-      // Use React's batching to ensure state updates happen together
-      flushSync(() => {
-        setIsStopping(false);
-        setIsProcessing(false);
-        setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
-      });
-      throw err; // Re-throw for test expectations
+      setIsStopping(false);
+      setIsProcessing(false);
+      setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
+      throw err;
     }
   }, []);
 
