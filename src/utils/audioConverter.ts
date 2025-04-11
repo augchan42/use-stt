@@ -18,44 +18,71 @@ function validateAudioFormat(blob: Blob) {
   }
 }
 
-export async function convertAudioToWebM(ffmpeg: FFmpeg, file: File | Blob): Promise<Blob> {
+export async function convertAudioToWebM(ffmpeg: FFmpeg, file: File | Blob, config: FFmpegConfig = {}): Promise<Blob> {
   console.log('Starting audio conversion to WebM...', {
     fileType: file.type,
-    fileSize: file.size
+    fileSize: file.size,
+    config
   });
   validateAudioFormat(file);
   
   try {
     console.log('Writing input file...');
     const fileData = await fetchFile(file);
-    console.log('File data fetched:', {
-      type: typeof fileData,
-      length: fileData.length
-    });
     await ffmpeg.writeFile('input', fileData);
     console.log('Input file written successfully');
 
     console.log('Converting to WebM...');
     const args = [
       '-i', 'input',
-      '-ar', '16000',  // Sample rate required by Whisper
-      '-ac', '1',      // Mono audio
-      '-c:a', 'libopus', // Use Opus codec for WebM
-      '-b:a', '128k',    // Decent bitrate for speech
-      'output.webm'
+      '-ar', `${config.outputSampleRate || 16000}`,  // Sample rate
+      '-ac', `${config.outputChannels || 1}`,        // Channels
     ];
+
+    // Add filters
+    const filters: string[] = [];
+    
+    // Noise reduction if requested
+    if (config.denoise) {
+      filters.push('anlmdn'); // Noise reduction filter
+    }
+
+    // Normalization if requested
+    if (config.normalize) {
+      filters.push(`loudnorm=I=${config.normalizationLevel || -16}`);
+    }
+
+    // Voice Activity Detection if requested
+    if (config.vad) {
+      filters.push(`silenceremove=start_periods=1:start_duration=1:start_threshold=${config.vadLevel || 1}:detection=peak`);
+    }
+
+    // Add any custom filters
+    if (config.filters && config.filters.length > 0) {
+      filters.push(...config.filters);
+    }
+
+    // Apply all filters if any
+    if (filters.length > 0) {
+      args.push('-af', filters.join(','));
+    }
+
+    // Add codec and compression settings
+    args.push(
+      '-c:a', 'libopus',
+      '-b:a', config.bitrate || '24k',
+      '-compression_level', `${config.compressionLevel || 10}`
+    );
+
+    args.push('output.webm');
+    
     console.log('FFmpeg conversion args:', args);
     await ffmpeg.exec(args);
     console.log('FFmpeg conversion completed');
 
-    console.log('Reading converted file...');
     const data = await ffmpeg.readFile('output.webm');
-    console.log('Output file read:', {
-      dataType: typeof data,
-      dataLength: data.length
-    });
     
-    console.log('Cleaning up temporary files...');
+    // Clean up
     await ffmpeg.deleteFile('input');
     await ffmpeg.deleteFile('output.webm');
 
@@ -63,7 +90,8 @@ export async function convertAudioToWebM(ffmpeg: FFmpeg, file: File | Blob): Pro
     console.log('Conversion complete:', {
       inputSize: file.size,
       outputSize: blob.size,
-      outputType: blob.type
+      outputType: blob.type,
+      appliedFilters: filters
     });
     return blob;
   } catch (error) {

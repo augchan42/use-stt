@@ -23,13 +23,22 @@ export interface FFmpegConfig {
   outputSampleRate?: number; // Output sample rate (default: 16000)
   outputChannels?: number;   // Output channels (default: 1)
   codec?: string;           // Audio codec (default: 'pcm_s16le' for WAV)
+  bitrate?: string;        // Audio bitrate (e.g., '24k', '32k', '64k')
   
   // Processing options
   normalize?: boolean;      // Apply audio normalization
+  normalizationLevel?: number; // Target normalization level in dB (default: -16)
+  denoise?: boolean;       // Apply noise reduction
   trim?: {                 // Trim audio
     start?: number;      // Start time in seconds
     duration?: number;   // Duration in seconds
   };
+  
+  // Advanced options
+  compressionLevel?: number;  // Opus-specific compression level (0-10, default: 10)
+  vad?: boolean;             // Voice Activity Detection
+  vadLevel?: number;         // VAD aggressiveness (0-3, default: 1)
+  filters?: string[];        // Additional FFmpeg audio filters
 }
 
 export interface STTOptions {

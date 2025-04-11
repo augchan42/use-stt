@@ -6,17 +6,23 @@ export async function transcribe(formData: FormData) {
   }
 
   try {
-    // Log incoming FormData
-    const file = formData.get('file');
-    console.log('Server: Received FormData:', {
-      hasFile: formData.has('file'),
-      fileName: file instanceof File ? file.name : null,
-      fileSize: file instanceof File ? file.size : null,
-      fileType: file instanceof File ? file.type : null
+    const file = formData.get('file') as File;
+    if (!file) {
+      throw new Error('No file provided');
+    }
+
+    // Log incoming request
+    console.log('Server: Received audio file:', {
+      name: file.name,
+      size: file.size,
+      type: file.type
     });
 
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'json');
+    // Prepare form data for Whisper API
+    const whisperFormData = new FormData();
+    whisperFormData.append('file', file);
+    whisperFormData.append('model', 'whisper-1');
+    whisperFormData.append('response_format', 'json');
 
     console.log('Server: Sending request to Whisper API...');
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -24,7 +30,7 @@ export async function transcribe(formData: FormData) {
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
       },
-      body: formData
+      body: whisperFormData
     });
 
     if (!response.ok) {
@@ -38,10 +44,10 @@ export async function transcribe(formData: FormData) {
     
     return {
       transcript: result.text,
-      confidence: 0.95 // Whisper API doesn't provide confidence scores
+      confidence: result.confidence
     };
   } catch (error) {
     console.error('Server: Transcription error:', error);
-    throw new Error(error instanceof Error ? error.message : 'Transcription failed');
+    throw error;
   }
 } 
