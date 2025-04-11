@@ -1,6 +1,6 @@
 {
   "name": "use-stt",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "React hook for speech-to-text using multiple STT providers",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -42,5 +42,9 @@
     "tsup": "^8.4.0",
     "typescript": "^5.0.4",
     "vitest": "^3.1.1"
+  },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2"
   }
 }

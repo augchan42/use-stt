@@ -1,10 +1,19 @@
 import { BaseAdapter, BaseError } from './baseAdapter';
 import { STTOptions, STTResult } from '../core/types';
+import { convertAudioToMono } from '../utils/audioConverter';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+
+interface WhisperAdapterOptions extends STTOptions {
+  ffmpeg: FFmpeg;
+}
 
 export class WhisperAdapter extends BaseAdapter {
-  constructor(options: STTOptions) {
+  private ffmpeg: FFmpeg;
+
+  constructor(options: WhisperAdapterOptions) {
     super(options);
     console.log('Initializing WhisperAdapter');
+    this.ffmpeg = options.ffmpeg;
   }
 
   protected async processAudio(audioBlob: Blob): Promise<STTResult> {
@@ -17,8 +26,12 @@ export class WhisperAdapter extends BaseAdapter {
         };
       }
 
+      // Convert audio to mono WAV
+      console.log('Converting audio to mono WAV...');
+      const convertedBlob = await convertAudioToMono(this.ffmpeg, audioBlob);
+
       console.log('Processing audio with transcribe function...');
-      const result = await this.options.transcribe(audioBlob);
+      const result = await this.options.transcribe(convertedBlob);
       
       return {
         transcript: result.transcript,

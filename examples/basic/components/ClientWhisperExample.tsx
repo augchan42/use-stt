@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSTT } from '../../../src';
 import { transcribe } from '../app/actions/transcribe';
 
@@ -10,7 +10,7 @@ interface DebugLog {
   type: 'log' | 'error' | 'info';
 }
 
-// Wrapper function to handle FormData conversion
+// Wrapper function to handle audio conversion and transcription
 async function transcribeAudio(audioBlob: Blob) {
   console.log('Client: Received audio blob:', {
     size: audioBlob.size,
@@ -18,7 +18,7 @@ async function transcribeAudio(audioBlob: Blob) {
   });
 
   const formData = new FormData();
-  formData.append('file', audioBlob, 'audio.webm');
+  formData.append('file', audioBlob, 'audio.wav');
   
   // Log FormData contents (for debugging)
   console.log('Client: FormData contents:', {
@@ -36,6 +36,12 @@ async function transcribeAudio(audioBlob: Blob) {
 export default function ClientWhisperExample() {
   const [logs, setLogs] = useState<DebugLog[]>([]);
   
+  // Memoize the transcribe function
+  const memoizedTranscribe = useCallback(
+    (blob: Blob) => transcribeAudio(blob),
+    []
+  );
+
   // Intercept console messages
   useEffect(() => {
     const originalConsoleLog = console.log;
@@ -80,7 +86,7 @@ export default function ClientWhisperExample() {
     resumeRecording,
   } = useSTT({
     provider: 'whisper',
-    transcribe: transcribeAudio
+    transcribe: memoizedTranscribe
   });
 
   // Add platform info at start
