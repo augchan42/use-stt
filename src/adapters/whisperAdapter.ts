@@ -26,12 +26,30 @@ export class WhisperAdapter extends BaseAdapter {
         };
       }
 
-      // Convert audio to mono WAV
-      console.log('Converting audio to mono WAV...');
-      const convertedBlob = await convertAudioToMono(this.ffmpeg, audioBlob);
+      // Check if we already have WebM format
+      const isWebM = audioBlob.type.includes('webm');
+      
+      let processedBlob = audioBlob;
+      if (!isWebM) {
+        // Convert non-WebM formats to WebM with Opus codec
+        console.log('Converting audio to WebM format...', {
+          originalFormat: audioBlob.type,
+          originalSize: audioBlob.size
+        });
+        processedBlob = await convertAudioToMono(this.ffmpeg, audioBlob);
+        console.log('Conversion complete:', {
+          newFormat: processedBlob.type,
+          newSize: processedBlob.size
+        });
+      } else {
+        console.log('Audio already in WebM format, skipping conversion:', {
+          format: audioBlob.type,
+          size: audioBlob.size
+        });
+      }
 
       console.log('Processing audio with transcribe function...');
-      const result = await this.options.transcribe(convertedBlob);
+      const result = await this.options.transcribe(processedBlob);
       
       return {
         transcript: result.transcript,

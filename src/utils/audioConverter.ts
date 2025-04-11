@@ -18,8 +18,8 @@ function validateAudioFormat(blob: Blob) {
   }
 }
 
-export async function convertAudioToMono(ffmpeg: FFmpeg, file: File | Blob): Promise<Blob> {
-  console.log('Starting audio conversion...', {
+export async function convertAudioToWebM(ffmpeg: FFmpeg, file: File | Blob): Promise<Blob> {
+  console.log('Starting audio conversion to WebM...', {
     fileType: file.type,
     fileSize: file.size
   });
@@ -35,20 +35,21 @@ export async function convertAudioToMono(ffmpeg: FFmpeg, file: File | Blob): Pro
     await ffmpeg.writeFile('input', fileData);
     console.log('Input file written successfully');
 
-    console.log('Converting to WAV...');
+    console.log('Converting to WebM...');
     const args = [
       '-i', 'input',
-      '-ar', '16000',
-      '-ac', '1',
-      '-c:a', 'pcm_s16le',
-      'output.wav'
+      '-ar', '16000',  // Sample rate required by Whisper
+      '-ac', '1',      // Mono audio
+      '-c:a', 'libopus', // Use Opus codec for WebM
+      '-b:a', '128k',    // Decent bitrate for speech
+      'output.webm'
     ];
     console.log('FFmpeg conversion args:', args);
     await ffmpeg.exec(args);
     console.log('FFmpeg conversion completed');
 
     console.log('Reading converted file...');
-    const data = await ffmpeg.readFile('output.wav');
+    const data = await ffmpeg.readFile('output.webm');
     console.log('Output file read:', {
       dataType: typeof data,
       dataLength: data.length
@@ -56,9 +57,9 @@ export async function convertAudioToMono(ffmpeg: FFmpeg, file: File | Blob): Pro
     
     console.log('Cleaning up temporary files...');
     await ffmpeg.deleteFile('input');
-    await ffmpeg.deleteFile('output.wav');
+    await ffmpeg.deleteFile('output.webm');
 
-    const blob = new Blob([data], { type: 'audio/wav' });
+    const blob = new Blob([data], { type: 'audio/webm;codecs=opus' });
     console.log('Conversion complete:', {
       inputSize: file.size,
       outputSize: blob.size,
@@ -73,6 +74,11 @@ export async function convertAudioToMono(ffmpeg: FFmpeg, file: File | Blob): Pro
     });
     throw error;
   }
+}
+
+// Keep the original convertAudioToMono as a fallback
+export async function convertAudioToMono(ffmpeg: FFmpeg, file: File | Blob): Promise<Blob> {
+  return convertAudioToWebM(ffmpeg, file);
 }
 
 export async function convertWithFFmpeg(
