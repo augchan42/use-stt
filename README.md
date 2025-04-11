@@ -10,6 +10,12 @@ A React hook for speech-to-text using multiple STT providers.
   - Google Cloud Speech-to-Text (coming soon)
 - Simple React hook interface with TypeScript support
 - Real-time audio recording with pause/resume capability
+- Advanced audio processing options:
+  - Audio format conversion (WebM/Opus)
+  - Bitrate control
+  - Volume normalization
+  - Noise reduction
+  - Voice Activity Detection (VAD)
 - Proper cleanup and resource management
 - Comprehensive error handling
 - Development mode support (React StrictMode compatible)
@@ -24,41 +30,98 @@ npm install use-stt
 ## Usage
 
 ```typescript
-'use server';
 // app/actions/transcribe.ts
+'use server';
+
 export async function transcribe(formData: FormData) {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is not configured');
   }
 
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: formData
-  });
+  try {
+    const file = formData.get('file') as File;
+    if (!file) {
+      throw new Error('No file provided');
+    }
 
-  const result = await response.json();
-  return {
-    transcript: result.text,
-    confidence: 0.95
-  };
+    // Prepare form data for Whisper API
+    const whisperFormData = new FormData();
+    whisperFormData.append('file', file);
+    whisperFormData.append('model', 'whisper-1');
+    whisperFormData.append('response_format', 'json');
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: whisperFormData
+    });
+
+    const result = await response.json();
+    return {
+      transcript: result.text,
+      confidence: result.confidence
+    };
+  } catch (error) {
+    console.error('Transcription error:', error);
+    throw error;
+  }
 }
 
 // components/SpeechToText.tsx
 'use client';
+import React, { useState, useCallback } from 'react';
 import { useSTT } from 'use-stt';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { transcribe } from '@/app/actions/transcribe';
+import type { FFmpegConfig } from 'use-stt';
+import { convertAudioToWebM } from 'use-stt/utils';
 
-// Wrapper function to handle FormData conversion
-async function transcribeAudio(audioBlob: Blob) {
-  const formData = new FormData();
-  formData.append('file', audioBlob, 'audio.webm');
-  return transcribe(formData);
-}
+// Initialize FFmpeg (do this once)
+let ffmpeg: FFmpeg | null = null;
+
+// Default audio processing config
+const defaultConfig: FFmpegConfig = {
+  outputSampleRate: 16000,
+  outputChannels: 1,
+  bitrate: '24k',
+  normalize: true,
+  normalizationLevel: -16,
+  denoise: false,
+  vad: false,
+  vadLevel: 1,
+  compressionLevel: 10
+};
 
 function SpeechToTextDemo() {
+  // Audio processing configuration state
+  const [config, setConfig] = useState<FFmpegConfig>(defaultConfig);
+  
+  // Wrapper function to handle audio processing and transcription
+  const transcribeAudio = useCallback(async (audioBlob: Blob) => {
+    try {
+      // Initialize FFmpeg if needed
+      if (!ffmpeg) {
+        console.log('Initializing FFmpeg...');
+        ffmpeg = new FFmpeg();
+        await ffmpeg.load();
+      }
+
+      // Process audio with FFmpeg
+      console.log('Converting audio with config:', config);
+      const processedBlob = await convertAudioToWebM(ffmpeg, audioBlob, config);
+
+      // Send to server for transcription
+      const formData = new FormData();
+      formData.append('file', processedBlob, 'audio.webm');
+      return transcribe(formData);
+    } catch (error) {
+      console.error('Audio processing error:', error);
+      throw error;
+    }
+  }, [config]);
+
   const { 
     isRecording, 
     isProcessing,
@@ -75,6 +138,47 @@ function SpeechToTextDemo() {
 
   return (
     <div>
+      {/* Audio Processing Configuration */}
+      <div className="mb-4">
+        <h3>Audio Processing Options</h3>
+        <div>
+          <label>
+            <input
+              type="checkbox"
+              checked={config.normalize}
+              onChange={(e) => setConfig(prev => ({ 
+                ...prev, 
+                normalize: e.target.checked 
+              }))}
+            />
+            Normalize Volume
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={config.denoise}
+              onChange={(e) => setConfig(prev => ({ 
+                ...prev, 
+                denoise: e.target.checked 
+              }))}
+            />
+            Reduce Background Noise
+          </label>
+          <select
+            value={config.bitrate}
+            onChange={(e) => setConfig(prev => ({ 
+              ...prev, 
+              bitrate: e.target.value 
+            }))}
+          >
+            <option value="16k">16 kbps (Low)</option>
+            <option value="24k">24 kbps (Default)</option>
+            <option value="32k">32 kbps (Better)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Recording Controls */}
       <div>
         <button 
           onClick={startRecording} 
@@ -118,7 +222,22 @@ function SpeechToTextDemo() {
     </div>
   );
 }
-```
+
+## Audio Processing Options
+
+The library supports various audio processing options through the `FFmpegConfig` interface:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| bitrate | string | '24k' | Audio bitrate (e.g., '16k', '24k', '32k') |
+| normalize | boolean | true | Enable volume normalization |
+| normalizationLevel | number | -16 | Target normalization level in dB |
+| denoise | boolean | false | Apply noise reduction |
+| vad | boolean | false | Enable Voice Activity Detection |
+| vadLevel | number | 1 | VAD sensitivity (0-3) |
+| compressionLevel | number | 10 | Opus compression level (0-10) |
+
+See the [examples](./examples) directory for a complete demo with audio processing controls.
 
 ## API Reference
 
