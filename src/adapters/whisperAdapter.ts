@@ -62,7 +62,9 @@ export class WhisperAdapter extends BaseAdapter {
       };
     } catch (error) {
       console.error('Error in processAudio:', error);
-      throw new BaseError(error instanceof Error ? error.message : 'Transcription failed');
+      const baseError = new BaseError(error instanceof Error ? error.message : 'Transcription failed');
+      baseError.cause = error; // Preserve original error as cause
+      throw baseError;
     }
   }
 }

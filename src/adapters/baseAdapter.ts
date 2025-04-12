@@ -84,13 +84,9 @@ export abstract class BaseAdapter {
     try {
       if (!this.recorder) return;
       console.log('Stopping recording...');
-      // Store recorder reference in case it gets cleared during async operations
       const currentRecorder = this.recorder;
-      // Clear recorder reference before stopping to prevent duplicate callbacks
-      this.recorder = null;
-      // Wait for the recorder to stop before proceeding
       await currentRecorder.stop();
-      // endCallback is now called after successful audio processing
+      this.recorder = null;
     } catch (error) {
       console.error('Error in stop():', error);
       this.handleError(error);
@@ -109,11 +105,15 @@ export abstract class BaseAdapter {
     }
   }
 
-  abort(): void {
+  async abort(): Promise<void> {
     console.log('Cleaning up adapter...');
     if (this.recorder) {
-      this.recorder.stop();
-      this.recorder = null;
+      try {
+        await this.recorder.stop();
+        this.recorder = null;
+      } catch (error) {
+        console.error('Error in abort():', error);
+      }
     }
   }
 
