@@ -2,6 +2,90 @@
 
 A React hook for speech-to-text using multiple STT providers.
 
+## Architecture Overview
+
+### Client-Side Components
+- **Audio Recording**: Happens in the browser using the Web Audio API
+- **Audio Processing**: Uses FFmpeg WebAssembly (runs entirely in the browser)
+- **React Hooks**: All hooks (`useSTT`, `useFFmpeg`) run on the client side and must be marked with `'use client'` directive in Next.js 13+
+
+### Server-Side Components
+- **Transcription API**: Only the final transcription request to Whisper API happens on the server
+- **API Key Management**: Sensitive keys are stored and used only on the server
+
+### How FFmpeg Works in the Browser
+1. **WebAssembly Loading**: 
+   ```typescript
+   // FFmpeg core files are loaded from CDN
+   const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd';
+   await ffmpeg.load({
+     coreURL: `${baseURL}/ffmpeg-core.js`,   // JavaScript interface
+     wasmURL: `${baseURL}/ffmpeg-core.wasm`  // WebAssembly binary
+   });
+   ```
+
+2. **Processing Flow**:
+   ```typescript
+   // 1. Record audio in browser
+   // 2. Process with FFmpeg (client-side)
+   const processedBlob = await convertAudioToWebM(ffmpeg, audioBlob);
+   // 3. Send to server for transcription
+   const formData = new FormData();
+   formData.append('file', processedBlob);
+   ```
+
+### Audio Format Handling
+The library automatically handles audio format compatibility across different devices:
+
+1. **Why Format Conversion?**
+   - iOS devices record in M4A format (not accepted by Whisper API)
+   - Android devices typically record in WebM format
+   - Whisper API requires specific formats (WebM, MP3, WAV, etc.)
+   - Browser compatibility varies across platforms
+
+2. **Format Strategy**:
+   ```typescript
+   // FFmpeg is always loaded, regardless of device type
+   await ffmpeg.load({
+     coreURL: `${baseURL}/ffmpeg-core.js`,
+     wasmURL: `${baseURL}/ffmpeg-core.wasm`
+   });
+
+   // Then check if conversion is needed
+   const isWebM = audioBlob.type.includes('webm');
+   
+   if (!isWebM) {
+     // Convert non-WebM formats (e.g., iOS M4A) to WebM
+     processedBlob = await convertAudioToWebM(ffmpeg, audioBlob);
+   } else {
+     // Android WebM recordings can be used as-is
+     // But FFmpeg is still available for other audio processing
+     // like normalization, noise reduction, etc.
+     processedBlob = audioBlob;
+   }
+   ```
+
+3. **Why WebM?**
+   - Native format for Android recordings (no format conversion needed)
+   - Excellent compression with Opus codec
+   - Well-supported by Whisper API
+   - Good browser compatibility
+   - Efficient streaming capabilities
+
+4. **Format Flow**:
+   ```
+   iOS Recording (M4A) ──┐
+                        │
+                        ▼
+                    FFmpeg Convert ──► WebM/Opus ──┐
+                        ▲                         │
+                        │                         ▼
+   Android (WebM) ──────┘ ──► Optional Processing ──► Whisper API
+                            (normalize, denoise, etc.)
+   ```
+
+Note: FFmpeg is always loaded because it's needed for audio processing features (normalization, noise reduction, etc.) even when format conversion isn't required. The ~31MB WebAssembly load happens on all devices, but this enables consistent audio processing capabilities across platforms.
+
 ## Features
 
 - Unified API for multiple speech-to-text providers
@@ -269,32 +353,207 @@ See the [examples](./examples) directory for working examples.
 
 ## Important Usage Notes
 
-### Audio Format Conversion
-
-The WhisperAdapter automatically handles audio format conversion to WebM/Opus when needed. Your transcribe function should NOT perform any audio conversion - just pass the audio blob directly to your transcription API:
+### Client vs Server Components in Next.js 13+
+When using this library with Next.js 13+ (App Router), ensure your components are properly marked:
 
 ```typescript
-// ✅ Good: Let the adapter handle conversion
-const transcribeAudio = async (audioBlob: Blob) => {
-  const formData = new FormData();
-  formData.append('file', audioBlob, 'audio.webm');
-  return transcribe(formData);
-};
+// components/AudioRecorder.tsx
+'use client'; // Required because this component uses browser APIs
 
-// ❌ Bad: Don't convert the audio yourself
-const transcribeAudio = async (audioBlob: Blob) => {
-  // Don't do this! The adapter already handles conversion
-  const processedBlob = await convertAudioToWebM(ffmpeg, audioBlob, config);
-  const formData = new FormData();
-  formData.append('file', processedBlob, 'audio.webm');
-  return transcribe(formData);
-};
+import { useSTT } from 'use-stt';
+
+export function AudioRecorder() {
+  const { transcript, startRecording } = useSTT({...});
+  // ...
+}
 ```
 
-The adapter:
-1. Automatically detects if the audio is already in WebM format
-2. Only converts when necessary (e.g., for iOS recordings)
-3. Handles all FFmpeg initialization and cleanup
-4. Applies any necessary audio processing options
+```typescript
+// app/api/transcribe/route.ts
+// Server-side API route for transcription
+export async function POST(request: Request) {
+  const formData = await request.formData();
+  const file = formData.get('file');
+  // Process with Whisper API...
+}
+```
 
-This prevents double conversion and ensures optimal performance.
+### FFmpeg CDN Usage
+The library uses FFmpeg-WASM from a CDN (unpkg.com). This means:
+1. No server-side FFmpeg installation needed
+2. First load might be slower (downloading WASM files)
+3. Requires internet connection to load FFmpeg
+4. ~31MB of WASM code loaded in browser
+
+To optimize for production:
+1. Consider self-hosting FFmpeg-WASM files
+2. Implement proper loading states
+3. Add error handling for offline scenarios
+
+```typescript
+// Example of custom FFmpeg URL configuration
+const ffmpeg = new FFmpeg();
+await ffmpeg.load({
+  coreURL: '/ffmpeg/ffmpeg-core.js',   // Self-hosted
+  wasmURL: '/ffmpeg/ffmpeg-core.wasm'  // Self-hosted
+});
+```
+
+### Audio Processing Options
+
+The library supports various audio processing options through the `FFmpegConfig` interface:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| bitrate | string | '24k' | Audio bitrate (e.g., '16k', '24k', '32k') |
+| normalize | boolean | true | Enable volume normalization |
+| normalizationLevel | number | -16 | Target normalization level in dB |
+| denoise | boolean | false | Apply noise reduction |
+| vad | boolean | false | Enable Voice Activity Detection |
+| vadLevel | number | 1 | VAD sensitivity (0-3) |
+| compressionLevel | number | 10 | Opus compression level (0-10) |
+
+See the [examples](./examples) directory for a complete demo with audio processing controls.
+
+## Browser Compatibility
+
+### Supported Browsers
+- Chrome/Chromium (Desktop & Android) ✅
+- Firefox (Desktop & Android) ✅
+- Safari (Desktop & iOS) ✅
+- Edge (Chromium-based) ✅
+
+### Device-Specific Notes
+- **iOS/Safari**: Records in M4A format, automatically converted to WebM
+- **Android**: Records natively in WebM format
+- **Desktop**: Format varies by browser, automatically handled
+
+### Required Browser Features
+- `MediaRecorder` API
+- WebAssembly support
+- `AudioContext` API
+- Service Workers (for worker functionality)
+
+## Performance Considerations
+
+### Initial Load
+- FFmpeg WASM (~31MB) is loaded on first use
+- Consider implementing:
+  ```typescript
+  // Preload FFmpeg in a low-priority way
+  const preloadFFmpeg = () => {
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'fetch';
+    link.href = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm';
+    document.head.appendChild(link);
+  };
+  ```
+
+### Memory Usage
+- FFmpeg WASM typically uses 50-100MB RAM when processing
+- Audio processing is done in chunks to manage memory
+- Large recordings (>1 hour) may require additional memory management
+
+### Network Usage
+- Initial FFmpeg download: ~31MB
+- WebM audio file size: ~100KB per minute (at 24k bitrate)
+- Whisper API uploads: Processed audio file size
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"FFmpeg not loaded" Error**
+   ```typescript
+   // Ensure FFmpeg is loaded before use
+   if (!ffmpeg) {
+     await loadFFmpeg();
+   }
+   ```
+
+2. **iOS Audio Format Issues**
+   - Ensure `type: 'audio/webm'` in recorder options
+   - Check FFmpeg conversion logs
+   - Verify Whisper API accepts the format
+
+3. **Memory Issues**
+   - Implement cleanup after processing
+   - Use `URL.revokeObjectURL()` for audio URLs
+   - Monitor memory usage in DevTools
+
+4. **CORS Issues with FFmpeg Loading**
+   - When self-hosting FFmpeg files, ensure proper CORS headers
+   - Check browser console for CORS errors
+   - Verify CDN access if using unpkg
+
+### Debug Mode
+Enable debug logging:
+```typescript
+const { transcript, error } = useSTT({
+  provider: 'whisper',
+  transcribe: transcribeAudio,
+  debug: true  // Enables detailed logging
+});
+```
+
+## Security Considerations
+
+### API Key Protection
+- NEVER expose API keys in client-side code
+- Use server actions or API routes for Whisper API calls
+- Implement proper environment variable handling
+
+### Audio Data Privacy
+- Audio processing happens locally in the browser
+- Only processed audio is sent to Whisper API
+- No intermediate storage on servers
+- Consider implementing:
+  ```typescript
+  // Clear processed audio data
+  const cleanup = () => {
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    // Clear any stored blobs
+    processedBlob = null;
+  };
+  ```
+
+### CORS and CSP
+- If self-hosting FFmpeg files, set appropriate headers:
+  ```nginx
+  # Nginx configuration example
+  location /ffmpeg/ {
+    add_header Cross-Origin-Resource-Policy cross-origin;
+    add_header Cross-Origin-Embedder-Policy require-corp;
+  }
+  ```
+
+- Add required CSP headers:
+  ```typescript
+  // next.config.js
+  const nextConfig = {
+    headers: async () => [{
+      source: '/:path*',
+      headers: [
+        {
+          key: 'Cross-Origin-Embedder-Policy',
+          value: 'require-corp'
+        },
+        {
+          key: 'Cross-Origin-Resource-Policy',
+          value: 'cross-origin'
+        }
+      ]
+    }]
+  };
+  ```
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
