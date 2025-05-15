@@ -68,6 +68,7 @@ export interface STTOptions {
   onError?: (error: Error) => void;
   onStart?: () => void;
   onEnd?: () => void;
+  disabled?: boolean;
 }
 
 export interface STTResult {

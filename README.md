@@ -347,6 +347,140 @@ See the [examples](./examples) directory for a complete demo with audio processi
 | pauseRecording | () => void | Pause recording |
 | resumeRecording | () => void | Resume recording |
 
+### Controlling Hook Activity (Disabling/Pausing)
+
+In some scenarios, you might want to temporarily "pause" or "disable" the `useSTT` hook, for example, when a parent form is submitting or when another UI element takes precedence. This prevents the hook from starting new recordings, processing audio, or updating its state while it's meant to be inactive.
+
+You can achieve this by adding a `disabled` option to your `useSTT` hook.
+
+**1. Modify `UseSTTOptions` in `useSTT`:**
+
+Add a `disabled` option to your hook's options interface:
+
+```typescript
+// In your custom useSTT.ts or equivalent
+export interface UseSTTOptions {
+  // ... existing options like provider, language, transcribe ...
+  disabled?: boolean; // New option to disable the hook
+}
+```
+
+**2. Implement `disabled` Logic within `useSTT`:**
+
+When the `disabled` option is `true`, your `useSTT` hook should:
+- Not initiate new recordings or speech recognition processes.
+- Avoid firing effects that update its internal state (e.g., `isRecording`, `isProcessing`, `transcript`, `error`).
+- Clean up or not establish any internal event listeners, timers, or connections to speech APIs.
+- Optionally, reset its state to an idle or default state.
+
+Here's a conceptual example of how to use the `disabled` flag within `useSTT`:
+
+```typescript
+// In your custom useSTT.ts or equivalent
+export function useSTT(options: UseSTTOptions) {
+  const {
+    provider,
+    language,
+    transcribe,
+    disabled = false // Default to false if not provided
+  } = options;
+
+  const [transcript, setTranscript] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  // ... other internal state and refs ...
+
+  // Example: Guarding an effect
+  useEffect(() => {
+    if (disabled) {
+      // If disabled, ensure no processing happens and clean up.
+      // This might involve stopping any active recognition,
+      // clearing timeouts, removing event listeners, etc.
+      setIsRecording(false);
+      setIsProcessing(false);
+      // setTranscript(''); // Optionally reset transcript
+      // setError(null);    // Optionally clear errors
+      
+      // Example: If using Web Speech API directly
+      // if (speechRecognitionInstanceRef.current) {
+      //   speechRecognitionInstanceRef.current.stop();
+      //   speechRecognitionInstanceRef.current.onresult = null;
+      //   // ... remove other listeners ...
+      // }
+      return; // Bail out of the effect
+    }
+
+    // ... otherwise, proceed with normal effect logic ...
+    // (e.g., setting up speech recognition, handling events)
+  }, [disabled, /* ... other relevant dependencies ... */]);
+
+  // Example: Guarding a callback
+  const startRecording = useCallback(async () => {
+    if (disabled) {
+      console.log('useSTT is disabled, startRecording aborted.');
+      return;
+    }
+    // ... existing startRecording logic ...
+  }, [disabled, /* ... other dependencies for startRecording ... */]);
+
+  const stopRecording = useCallback(async () => {
+    if (disabled) {
+      console.log('useSTT is disabled, stopRecording aborted.');
+      // Even if disabled, you might want to allow stopping an ongoing recording
+      // that was started *before* it was disabled. This depends on desired behavior.
+      // If truly dormant, then perhaps this also becomes a no-op.
+      // For now, let's assume it should still try to stop if one was in progress.
+    }
+    // ... existing stopRecording logic ...
+    // Consider if isRecording should be set to false here if disabled is true.
+  }, [disabled, /* ... other dependencies for stopRecording ... */]);
+
+  // Ensure all other effects, callbacks, and internal processes
+  // similarly respect the 'disabled' flag.
+
+  return {
+    transcript,
+    isRecording,
+    isProcessing,
+    error,
+    startRecording,
+    stopRecording,
+    // ... other returned values
+  };
+}
+```
+**Important**: The exact implementation details within `useSTT` (like how to stop underlying speech APIs or clear resources) will depend on your specific hook's internal architecture. The key is to make the hook as quiescent as possible when `disabled` is `true`.
+
+**3. Using the `disabled` Prop in a Parent Component:**
+
+Now, your parent component can pass the `disabled` prop to `useSTT`:
+
+```typescript
+// Example: In a component like VoiceInput.tsx
+// Assume 'isSubmitting' is a state variable in this parent component.
+
+const {
+  transcript: sttTranscript,
+  isRecording,
+  isProcessing: isProcessingSTT,
+  error: sttError,
+  startRecording,
+  stopRecording
+} = useSTT({
+  provider: 'whisper',
+  // ... other options ...
+  disabled: isSubmitting, // Pass the parent's state here
+});
+
+// UI elements can also use 'isSubmitting' to disable themselves
+// <button onClick={startRecording} disabled={isSubmitting || isRecording}>
+//   Record
+// </button>
+```
+
+By implementing this pattern, you gain fine-grained control over when `useSTT` is active, helping to prevent unexpected behavior and state updates during critical periods like form submissions.
+
 ## Development
 
 See the [examples](./examples) directory for working examples.

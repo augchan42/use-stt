@@ -20,6 +20,7 @@ interface UseSTTResult {
 const isDev = process.env.NODE_ENV === 'development';
 
 export function useSTT(options: STTOptions): UseSTTResult {
+  const { disabled = false } = options;
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -29,68 +30,81 @@ export function useSTT(options: STTOptions): UseSTTResult {
   const adapterRef = useRef<WhisperAdapter | null>(null);
   const optionsRef = useRef(options);
 
-  // Update options ref when options change
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
 
-  // Initialize FFmpeg
   const { ffmpeg, loaded, loading, error: ffmpegError, load: loadFFmpeg } = useFFmpeg();
 
-  // Initialize adapter when FFmpeg is loaded
+  useEffect(() => {
+    if (disabled) {
+      if (isDev) console.log('useSTT is disabled. Cleaning up adapter and resetting state.');
+      if (adapterRef.current) {
+        adapterRef.current.abort();
+        adapterRef.current = null;
+      }
+      setIsRecording(false);
+      setIsProcessing(false);
+      setIsStopping(false);
+      setIsInitialized(false);
+    } else if (loaded && ffmpeg && !adapterRef.current && !isInitialized) {
+      if (isDev) console.log('useSTT is re-enabled. Attempting to initialize adapter.');
+    }
+  }, [disabled, loaded, ffmpeg, isInitialized]);
+
   useEffect(() => {
     let isMounted = true;
 
     const initializeAdapter = async () => {
-      if (!loaded || !ffmpeg) {
-        if (ffmpegError && isMounted) {
+      if (disabled || !loaded || !ffmpeg) {
+        if (ffmpegError && isMounted && !disabled) {
           setError(ffmpegError);
-          setIsInitialized(false);
         }
         return;
       }
 
+      if (adapterRef.current && isInitialized) return;
+      
+      if (isDev) console.log('useSTT: Initializing adapter.');
       try {
-        // Only create adapter if it doesn't exist
-        if (!adapterRef.current) {
-          console.log('Creating new WhisperAdapter instance');
-          const adapter = new WhisperAdapter({
-            ...optionsRef.current,
-            ffmpeg,
-            onResult: (result: STTResult) => {
-              if (!isMounted) return;
-              setTranscript(result.transcript);
-              if (result.isFinal) {
-                setIsProcessing(false);
-              }
-            },
-            onError: (err: Error) => {
-              if (!isMounted) return;
-              setError(err);
+        console.log('Creating new WhisperAdapter instance');
+        const adapter = new WhisperAdapter({
+          ...optionsRef.current,
+          ffmpeg,
+          onResult: (result: STTResult) => {
+            if (!isMounted || optionsRef.current.disabled) return;
+            setTranscript(result.transcript);
+            if (result.isFinal) {
               setIsProcessing(false);
-              setIsRecording(false);
-            },
-            onStart: () => {
-              if (!isMounted) return;
-              setError(null);
-              setIsRecording(true);
-              setIsProcessing(true);
-            },
-            onEnd: () => {
-              if (!isMounted) return;
-              setIsRecording(false);
-              setIsStopping(false);
             }
-          });
-
-          adapterRef.current = adapter;
-          if (isMounted) {
-            setIsInitialized(true);
+          },
+          onError: (err: Error) => {
+            if (!isMounted || optionsRef.current.disabled) return;
+            setError(err);
+            setIsProcessing(false);
+            setIsRecording(false);
+          },
+          onStart: () => {
+            if (!isMounted || optionsRef.current.disabled) return;
+            setError(null);
+            setIsRecording(true);
+            setIsProcessing(true);
+          },
+          onEnd: () => {
+            if (!isMounted || optionsRef.current.disabled) return;
+            setIsRecording(false);
+            setIsStopping(false);
           }
+        });
+
+        adapterRef.current = adapter;
+        if (isMounted) {
+          setIsInitialized(true);
+          setError(null);
         }
       } catch (err) {
         console.error('Error initializing adapter:', err);
-        if (isMounted) {
+        if (isMounted && !optionsRef.current.disabled) {
           setError(err instanceof Error ? err : new BaseError('Failed to initialize adapter'));
           setIsInitialized(false);
         }
@@ -101,70 +115,115 @@ export function useSTT(options: STTOptions): UseSTTResult {
 
     return () => {
       isMounted = false;
-      if (adapterRef.current) {
+      if (adapterRef.current && !optionsRef.current.disabled) {
+         if (isDev) console.log('useSTT: Unmounting, aborting adapter.');
         adapterRef.current.abort();
         adapterRef.current = null;
-        setIsInitialized(false);
+      } else if (adapterRef.current && optionsRef.current.disabled) {
+        adapterRef.current = null;
       }
     };
-  }, [loaded, ffmpeg, ffmpegError]); // Remove options from deps array since we use ref
+  }, [loaded, ffmpeg, ffmpegError, disabled, isInitialized]);
 
-  // Load FFmpeg on mount
   useEffect(() => {
-    loadFFmpeg();
-  }, [loadFFmpeg]);
+    if (disabled) {
+        if (isDev) console.log('useSTT is disabled. FFmpeg load call skipped.');
+      return;
+    }
+    if (!loaded && !loading && !ffmpegError) {
+        if (isDev) console.log('useSTT: loadFFmpeg called.');
+        loadFFmpeg();
+    }
+  }, [loadFFmpeg, disabled, loaded, loading, ffmpegError]);
 
   const startRecording = useCallback(async () => {
-    try {
-      if (ffmpegError) {
-        throw ffmpegError;
-      }
-      if (!loaded || !ffmpeg) {
+    // Priority 1: Check if disabled
+    if (optionsRef.current.disabled) {
+      if (isDev) console.log('useSTT: startRecording aborted (STT is disabled).');
+      throw new Error('STT is disabled.');
+    }
+
+    // Priority 2: Check for FFmpeg loading errors directly
+    // This error should be surfaced regardless of initialization state if an attempt to record is made.
+    if (ffmpegError) {
+        if (isDev) console.log('useSTT: startRecording aborted (FFmpeg error).');
+        throw ffmpegError; 
+    }
+    
+    // Priority 3: Check if FFmpeg is actually loaded (should be redundant if ffmpegError is null, but good safeguard)
+    if (!loaded || !ffmpeg) {
+        if (isDev) console.log('useSTT: startRecording aborted (FFmpeg not loaded).');
         throw new Error('FFmpeg not loaded');
-      }
-      if (!adapterRef.current || !isInitialized) {
-        throw new Error('STT adapter not initialized');
-      }
+    }
+
+    // Priority 4: Check if adapter is initialized
+    if (!isInitialized || !adapterRef.current) {
+      if (isDev) console.log('useSTT: startRecording aborted (adapter not initialized or no adapter).');
+      throw new Error('STT adapter not initialized.');
+    }
+
+    // If all checks pass, proceed with starting the adapter
+    try {
       await adapterRef.current.start();
     } catch (err) {
-      setIsRecording(false);
-      setIsProcessing(false);
-      setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
-      throw err;
+      // Error during adapter.start() call
+      if (!optionsRef.current.disabled) { // Only set component error state if not disabled
+        setIsRecording(false);
+        setIsProcessing(false);
+        setError(err instanceof Error ? err : new BaseError('Failed to start recording'));
+      }
+      throw err; // Re-throw to allow parent to catch
     }
-  }, [loaded, ffmpeg, ffmpegError, isInitialized]);
+  }, [loaded, ffmpeg, ffmpegError, isInitialized]); // optionsRef.current.disabled is checked inside
 
   const stopRecording = useCallback(async () => {
+    if (!adapterRef.current) {
+      if (isDev) console.log('useSTT: stopRecording aborted (no adapter).');
+      return;
+    }
+    if (isDev) console.log('useSTT: stopRecording called.');
     try {
-      if (!adapterRef.current) return;
       setIsStopping(true);
       await adapterRef.current.stop();
+      if (optionsRef.current.disabled) {
+        setIsStopping(false);
+        setIsRecording(false);
+        setIsProcessing(false);
+      }
     } catch (err) {
-      setIsStopping(false);
-      setIsProcessing(false);
-      setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
+      if (!optionsRef.current.disabled) {
+        setError(err instanceof Error ? err : new BaseError('Failed to stop recording'));
+      }
+       setIsStopping(false);
+       setIsProcessing(false);
       throw err;
     }
   }, []);
 
   const pauseRecording = useCallback(() => {
-    if (adapterRef.current) {
-      adapterRef.current.pause();
+    if (optionsRef.current.disabled || !adapterRef.current) {
+      if (isDev) console.log('useSTT: pauseRecording aborted (disabled or no adapter).');
+      return;
     }
+    if (isDev) console.log('useSTT: pauseRecording called.');
+    adapterRef.current.pause();
   }, []);
 
   const resumeRecording = useCallback(() => {
-    if (adapterRef.current) {
-      adapterRef.current.resume();
+    if (optionsRef.current.disabled || !adapterRef.current) {
+      if (isDev) console.log('useSTT: resumeRecording aborted (disabled or no adapter).');
+      return;
     }
+    if (isDev) console.log('useSTT: resumeRecording called.');
+    adapterRef.current.resume();
   }, []);
 
   return {
     transcript,
     isRecording,
-    isProcessing: isProcessing || loading,
-    error: error || ffmpegError,
-    isInitialized,
+    isProcessing: optionsRef.current.disabled ? false : (isProcessing || loading),
+    error: optionsRef.current.disabled ? null : (error || ffmpegError),
+    isInitialized: optionsRef.current.disabled ? false : isInitialized,
     isStopping,
     startRecording,
     stopRecording,

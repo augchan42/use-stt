@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useSTT } from '../src/hooks/useSTT';
 import { mockFFmpeg } from './setup';
 
@@ -7,37 +7,45 @@ import { mockFFmpeg } from './setup';
 vi.mock('../src/audio/recorder', () => {
   return {
     AudioRecorder: class MockAudioRecorder {
-      private onDataAvailable?: (data: Blob) => void;
+      private onDataAvailable?: (data: Blob) => Promise<void>;
       private onError?: (error: Error) => void;
       private state: 'inactive' | 'recording' | 'paused' = 'inactive';
 
-      constructor(options: { onDataAvailable?: (data: Blob) => void; onError?: (error: Error) => void }) {
+      constructor(options: { 
+        onDataAvailable?: (data: Blob) => Promise<void>;
+        onError?: (error: Error) => void; 
+      }) {
         this.onDataAvailable = options.onDataAvailable;
         this.onError = options.onError;
       }
 
       async start() {
-        // Set state synchronously like the real MediaRecorder
         this.state = 'recording';
-        // Return resolved promise to match async signature
         return Promise.resolve();
       }
 
-      async stop() {
-        if (this.state === 'inactive') return;
-        
-        // Set state synchronously like the real MediaRecorder
+      async stop(): Promise<void> {
+        if (this.state === 'inactive') {
+          return Promise.resolve();
+        }
         this.state = 'inactive';
         
-        // Trigger onDataAvailable asynchronously like the real MediaRecorder
-        const callback = this.onDataAvailable;
-        if (callback) {
-          // Use queueMicrotask to ensure this runs after current synchronous code
-          queueMicrotask(() => {
-            const blob = new Blob(['test'], { type: 'audio/webm' });
-            callback(blob);
+        const onDataAvailableCallback = this.onDataAvailable;
+        if (onDataAvailableCallback) {
+          return new Promise<void>((resolve) => {
+            queueMicrotask(async () => {
+              const blob = new Blob(['test'], { type: 'audio/webm' });
+              try {
+                await onDataAvailableCallback(blob);
+              } catch (e) {
+                console.error('MockAudioRecorder: Unexpected error during onDataAvailable callback execution:', e);
+              } finally {
+                resolve();
+              }
+            });
           });
         }
+        return Promise.resolve();
       }
 
       pause() {
@@ -142,9 +150,7 @@ describe('useSTT', () => {
     // Wait for adapter initialization
     await act(async () => {
       // Wait for initialization to complete
-      while (!result.current.isInitialized) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      await waitFor(() => expect(result.current.isInitialized).toBe(true), { timeout: 2000 });
     });
 
     // Start recording
@@ -154,10 +160,12 @@ describe('useSTT', () => {
 
     // Stop recording and wait for error
     await act(async () => {
+      // Expect stopRecording itself not to throw, the error is handled via state
       await result.current.stopRecording();
-      // Wait for error handling to complete
-      await Promise.resolve();
     });
+
+    // Wait for the error to be set in the hook's state
+    await waitFor(() => expect(result.current.error).not.toBeNull(), { timeout: 2000 });
 
     expect(result.current.error).toBeTruthy();
     expect(result.current.error?.message).toBe('Transcription failed');
@@ -178,10 +186,14 @@ describe('useSTT', () => {
       transcribe: mockTranscribe
     }));
 
+    // In this case, initialization might not complete, or error might be set quickly.
+    // We expect startRecording to throw the FFmpeg error.
     await act(async () => {
       await expect(result.current.startRecording()).rejects.toThrow('Failed to load FFmpeg');
     });
-
+    
+    // Also check the hook's error state, which should reflect the ffmpegError
+    await waitFor(() => expect(result.current.error).not.toBeNull(), { timeout: 2000 });
     expect(result.current.error?.message).toBe('Failed to load FFmpeg');
   });
 });
