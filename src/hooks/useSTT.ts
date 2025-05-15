@@ -38,17 +38,16 @@ export function useSTT(options: STTOptions): UseSTTResult {
 
   useEffect(() => {
     if (disabled) {
-      if (isDev) console.log('useSTT is disabled. Cleaning up adapter and resetting state.');
+      if (isDev) console.log('useSTT is disabled. Cleaning up adapter.');
       if (adapterRef.current) {
         adapterRef.current.abort();
         adapterRef.current = null;
       }
       setIsRecording(false);
-      setIsProcessing(false);
       setIsStopping(false);
       setIsInitialized(false);
     } else if (loaded && ffmpeg && !adapterRef.current && !isInitialized) {
-      if (isDev) console.log('useSTT is re-enabled. Attempting to initialize adapter.');
+      if (isDev) console.log('useSTT is re-enabled. Will attempt to initialize adapter if not already initializing.');
     }
   }, [disabled, loaded, ffmpeg, isInitialized]);
 
@@ -221,9 +220,9 @@ export function useSTT(options: STTOptions): UseSTTResult {
   return {
     transcript,
     isRecording,
-    isProcessing: optionsRef.current.disabled ? false : (isProcessing || loading),
-    error: optionsRef.current.disabled ? null : (error || ffmpegError),
-    isInitialized: optionsRef.current.disabled ? false : isInitialized,
+    isProcessing: isProcessing || loading,
+    error: error || ffmpegError,
+    isInitialized,
     isStopping,
     startRecording,
     stopRecording,

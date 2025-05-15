@@ -690,4 +690,22 @@ MIT License - see LICENSE file for details.
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Contributions are welcome! Please open an issue or submit a pull request.
+
+## Publishing to npm
+
+To publish a new version of the `use-stt` package to npm, follow these steps:
+
+1.  **Ensure all changes are committed**: Make sure your working directory is clean and all desired changes are included in your Git history.
+2.  **Update the package version**:
+    Decide on the appropriate version bump (patch, minor, or major) according to [Semantic Versioning (SemVer)](https://semver.org/). You can use the `npm version` command to update the version in `package.json` and create a version commit and tag.
+    *   For a patch release (bug fixes): `npm version patch`
+    *   For a minor release (new non-breaking features): `npm version minor`
+    *   For a major release (breaking changes): `npm version major`
+3.  **Push Git commits and tags** (if you used `npm version` which creates them):
+    `git push && git push --tags`
+4.  **Publish to npm**:
+    Run the following command:
+    `npm publish`
+
+    The `prepublishOnly` script in `package.json` will automatically run `npm run build` before publishing, ensuring that the latest code is compiled.
